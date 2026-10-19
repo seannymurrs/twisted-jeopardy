@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base target="_top">
+<title>Twisted Jeopardy</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Nunito:wght@500;700;900&display=swap">
+<style>
+/* Layout: a single dark game-board world (committed single theme). Setup is a form page; play is a 5x6 board with a scoreboard rail; the card is a full-screen overlay. */
+:root{
+  --bg:#12172a;
+  --panel:#1c2340;
+  --panel-2:#252e52;
+  --line:#36407a;
+  --fg:#f3f0e6;
+  --muted:#aab0cc;
+  --gold:#ffd166;
+  --good:#7ee787;
+  --bad:#ff7b7b;
+  --c1:#ff6b6b; --c2:#ffb020; --c3:#9be35a; --c4:#4cc9f0; --c5:#c77dff;
+  --display:"Bungee","Impact","Arial Black",sans-serif;
+  --body:"Nunito","Segoe UI",system-ui,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.4;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px}
+h1,h2,h3{font-family:var(--display);font-weight:400;letter-spacing:.02em;text-wrap:balance;margin:0}
+h1{font-size:clamp(1.6rem,4vw,2.6rem)}
+h2{font-size:clamp(1.1rem,2.4vw,1.5rem)}
+button{font-family:var(--body);font-weight:800;font-size:1rem;border:0;border-radius:10px;padding:.65em 1.1em;cursor:pointer;color:var(--bg);background:var(--gold);transition:transform .08s,filter .15s}
+button:hover{filter:brightness(1.08)}
+button:active{transform:scale(.97)}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid var(--c4);outline-offset:2px}
+button.ghost{background:var(--panel-2);color:var(--fg);border:1px solid var(--line)}
+button.danger{background:var(--bad);color:#2a0d0d}
+button.good{background:var(--good);color:#0d2a12}
+button.big{font-size:1.25rem;padding:.8em 1.4em;border-radius:14px}
+button:disabled{opacity:.45;cursor:not-allowed;filter:none}
+input,textarea,select{font-family:var(--body);font-size:1rem;color:var(--fg);background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:.55em .7em;width:100%}
+textarea{resize:vertical;min-height:2.6em}
+.muted{color:var(--muted)}
+.small{font-size:.85rem}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.eyebrow{font-size:.75rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:900}
+.wrap{max-width:1200px;margin:0 auto}
+header.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
+header.top h1 span{color:var(--gold)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px}
+.stack{display:grid;gap:14px}
+.help{color:var(--muted);font-size:.9rem;max-width:65ch}
+
+/* ----- setup ----- */
+.setup-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:16px}
+@media (max-width:900px){.setup-grid{grid-template-columns:1fr}}
+.teams{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:520px){.teams{grid-template-columns:1fr}}
+.cat-block{border-radius:12px;border:1px solid var(--line);background:var(--panel-2);padding:12px;display:grid;gap:8px;border-left:8px solid var(--cat)}
+.cat-block .cat-name{display:flex;gap:10px;align-items:center}
+.cat-block .cat-name .dot{width:18px;height:18px;border-radius:50%;background:var(--cat);flex:none}
+.qa{display:grid;grid-template-columns:2.2em minmax(0,1fr) minmax(0,1fr);gap:8px;align-items:start}
+.qa .n{font-family:var(--display);color:var(--cat);font-size:1.1rem;padding-top:.45em;text-align:center}
+@media (max-width:640px){.qa{grid-template-columns:2.2em minmax(0,1fr)}.qa .a{grid-column:2}}
+.saved-list{display:grid;gap:8px}
+.saved-item{display:flex;gap:8px;align-items:center;justify-content:space-between;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.saved-item .name{font-weight:800;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.saved-item.current{border-color:var(--gold)}
+.notice{background:var(--panel-2);border:1px dashed var(--line);border-radius:10px;padding:10px 12px;font-size:.9rem}
+.notice.err{border-color:var(--bad);color:var(--bad)}
+.toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--gold);color:var(--bg);font-weight:900;padding:.6em 1.2em;border-radius:999px;box-shadow:0 10px 30px rgba(0,0,0,.4);z-index:50;opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.show{opacity:1}
+
+/* ----- board ----- */
+.game{display:grid;grid-template-columns:minmax(0,1fr) 230px;gap:16px;height:calc(100% - 0px)}
+@media (max-width:860px){.game{grid-template-columns:1fr}}
+.board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;align-content:start}
+.board .head{font-family:var(--display);font-size:clamp(.7rem,1.5vw,1.15rem);line-height:1.1;text-align:center;background:var(--cat);color:#141424;border-radius:10px;padding:.6em .3em;min-height:3.2em;display:flex;align-items:center;justify-content:center;overflow-wrap:anywhere}
+.card{font-family:var(--display);font-size:clamp(1.3rem,3.6vw,2.6rem);aspect-ratio:1.5;background:var(--panel-2);border:3px solid var(--cat);color:var(--cat);border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .1s,background .15s;padding:0}
+.card:hover{background:var(--cat);color:#141424;transform:translateY(-2px)}
+.card.used{background:transparent;border-color:var(--line);color:var(--line);cursor:default;transform:none}
+.card.used:hover{background:transparent;color:var(--line)}
+.rail{display:grid;gap:12px;align-content:start}
+.team{background:var(--panel);border:2px solid var(--line);border-radius:14px;padding:12px;display:grid;gap:6px;cursor:pointer}
+.team.active{border-color:var(--gold);box-shadow:0 0 0 3px rgba(255,209,102,.25)}
+.team .tname{font-weight:900;font-size:1.05rem;overflow-wrap:anywhere}
+.team .turn{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);font-weight:900;min-height:1em}
+.team .score{font-family:var(--display);font-size:2.2rem;font-variant-numeric:tabular-nums;line-height:1}
+.team .score.neg{color:var(--bad)}
+.team .adj{display:flex;gap:6px}
+.team .adj button{padding:.3em .6em;font-size:.85rem;flex:1}
+.team .adj input{padding:.3em;text-align:center;font-weight:900}
+.rail .tools{display:grid;gap:8px}
+.rail .tools button{width:100%}
+
+/* ----- card overlay ----- */
+.overlay{position:fixed;inset:0;background:rgba(10,13,26,.92);z-index:40;display:grid;place-items:center;padding:max(16px,env(safe-area-inset-left,0px));overflow:auto}
+.sheet{width:min(960px,100%);background:var(--panel);border:4px solid var(--cat);border-radius:22px;padding:clamp(18px,3vw,36px);display:grid;gap:18px;position:relative}
+.sheet .tag{font-family:var(--display);color:var(--cat);font-size:1rem;letter-spacing:.05em}
+.sheet .for{color:var(--muted);font-weight:800}
+.sheet .q{font-size:clamp(1.4rem,3.4vw,2.6rem);font-weight:900;line-height:1.25;overflow-wrap:anywhere;white-space:pre-wrap}
+.sheet .a{font-size:clamp(1.2rem,2.8vw,2rem);font-weight:800;color:var(--good);border-top:1px solid var(--line);padding-top:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.sheet .actions{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+.flip{display:grid;place-items:center;gap:14px;text-align:center}
+.flip .face{font-family:var(--display);font-size:clamp(1.8rem,5.5vw,4.2rem);line-height:1.05;color:var(--gold);text-wrap:balance}
+.flip .face.sub{font-size:clamp(1rem,2.4vw,1.6rem);color:var(--fg);font-family:var(--body);font-weight:800}
+.flip .face.bad{color:var(--bad)}
+.flip .face.good{color:var(--good)}
+.preview{display:grid;grid-template-columns:1fr auto 1fr;gap:8px 14px;align-items:center;background:var(--panel-2);border-radius:12px;padding:12px 16px;font-variant-numeric:tabular-nums;width:min(520px,100%)}
+.preview .pn{font-weight:900;text-align:right;overflow-wrap:anywhere}
+.preview .arrow{color:var(--muted)}
+.preview .pv{font-family:var(--display);font-size:1.3rem;text-align:left}
+.preview .pv.neg{color:var(--bad)}
+.steps{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}
+.steps span{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;font-weight:900;color:var(--muted);padding:.3em .7em;border-radius:999px;border:1px solid var(--line)}
+.steps span.on{color:var(--bg);background:var(--gold);border-color:var(--gold)}
+.closex{position:absolute;top:10px;right:10px;background:transparent;color:var(--muted);font-size:1.4rem;padding:.2em .5em}
+.winner{display:grid;place-items:center;gap:14px;text-align:center;padding:30px 10px}
+.winner .big{font-family:var(--display);font-size:clamp(2rem,6vw,4.5rem);color:var(--gold)}
+.pulse{animation:pulse .5s ease-out}
+@keyframes pulse{0%{transform:scale(.92);opacity:.4}100%{transform:scale(1);opacity:1}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ======================= Data ======================= */
+const COLORS = ['var(--c1)','var(--c2)','var(--c3)','var(--c4)','var(--c5)'];
+const NCAT = 5, NQ = 6;
+
+// The 30 consequences from the In-Class deck. me = picking team, other = the other team.
+const DECK = [
+  {t:'add',n:500},{t:'add',n:-100},{t:'swap'},{t:'steal',n:300},{t:'steal',n:100},{t:'other',n:100},
+  {t:'add',n:-200},{t:'add',n:-400},{t:'double'},{t:'giveall'},{t:'steal',n:200},{t:'flip'},
+  {t:'add',n:400},{t:'add',n:100},{t:'add',n:-1000},{t:'swap'},{t:'other',n:300},{t:'other',n:200},
+  {t:'add',n:200},{t:'add',n:300},{t:'loseall'},{t:'otherzero'},{t:'bothzero'},{t:'other',n:100},
+  {t:'add',n:100},{t:'add',n:-300},{t:'add',n:-500},{t:'giveall'},{t:'flip'},{t:'other',n:100},
+];
+
+function fmtN(n){ return (n>0?'+':'')+n; }
+function cardText(c, names){
+  const o = names ? names[1] : 'the other team';
+  switch(c.t){
+    case 'add': return {main:fmtN(c.n), sub:'', tone:c.n>0?'good':'bad'};
+    case 'swap': return {main:'SWAP POINTS', sub:'Both teams trade scores', tone:''};
+    case 'steal': return {main:'STEAL +'+c.n, sub:'from '+o, tone:'good'};
+    case 'other': return {main:'OTHER TEAM GAINS +'+c.n, sub:o+' gets the points', tone:'bad'};
+    case 'double': return {main:'DOUBLE POINTS', sub:'Your score is doubled', tone:'good'};
+    case 'giveall': return {main:'GIVE ALL POINTS', sub:'to '+o, tone:'bad'};
+    case 'flip': return {main:'CHANGE + OR −', sub:'Your score flips to its opposite', tone:''};
+    case 'loseall': return {main:'LOSE ALL POINTS', sub:'Your score goes to zero', tone:'bad'};
+    case 'otherzero': return {main:'OTHER TEAM GOES TO ZERO', sub:o+' loses everything', tone:'good'};
+    case 'bothzero': return {main:'BOTH TEAMS GO TO ZERO', sub:'Everyone starts over', tone:'bad'};
+  }
+}
+// Pure scoring: returns new [me, other] after applying card (correct bonus applied separately)
+function applyCard(c, me, other){
+  switch(c.t){
+    case 'add': return [me+c.n, other];
+    case 'swap': return [other, me];
+    case 'steal': return [me+c.n, other-c.n];
+    case 'other': return [me, other+c.n];
+    case 'double': return [me*2, other];
+    case 'giveall': return [0, other+me];
+    case 'flip': return [-me, other];
+    case 'loseall': return [0, other];
+    case 'otherzero': return [me, 0];
+    case 'bothzero': return [0, 0];
+  }
+}
+
+function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
+
+const SAMPLE_SET = {
+  name:'Sample: 7th Grade ELA Review',
+  cats:[
+    {name:'Parts of Speech',q:[
+      ['Which part of speech names a person, place, thing, or idea?','Noun'],
+      ['Which part of speech describes a noun?','Adjective'],
+      ['Which part of speech shows action or a state of being?','Verb'],
+      ['Which part of speech modifies a verb, adjective, or another adverb?','Adverb'],
+      ['Which part of speech takes the place of a noun?','Pronoun'],
+      ['Which part of speech connects words or groups of words (and, but, or)?','Conjunction']]},
+    {name:'Figurative Language',q:[
+      ['"Her smile was like sunshine." Simile or metaphor?','Simile'],
+      ['"The classroom was a zoo." Simile or metaphor?','Metaphor'],
+      ['Giving human traits to something not human is called what?','Personification'],
+      ['Extreme exaggeration for effect is called what?','Hyperbole'],
+      ['Words that imitate sounds (buzz, crash) are called what?','Onomatopoeia'],
+      ['Repeating the same beginning sound in nearby words is called what?','Alliteration']]},
+    {name:'Story Elements',q:[
+      ['The time and place of a story is called the what?','Setting'],
+      ['The main character of a story is called the what?','Protagonist'],
+      ['The character who opposes the main character is the what?','Antagonist'],
+      ['The turning point or most intense moment of a story is the what?','Climax'],
+      ['The message or lesson of a story is its what?','Theme'],
+      ['The problem a character faces is called the what?','Conflict']]},
+    {name:'Punctuation',q:[
+      ['Which punctuation mark ends a question?','Question mark'],
+      ['Which mark shows possession or forms a contraction?','Apostrophe'],
+      ['Which marks go around a speaker’s exact words?','Quotation marks'],
+      ['Which mark separates items in a list?','Comma'],
+      ['Which mark joins two complete sentences without a conjunction?','Semicolon'],
+      ['Which mark introduces a list or explanation after a complete sentence?','Colon']]},
+    {name:'Reading Skills',q:[
+      ['The most important idea of a paragraph is its what?','Main idea'],
+      ['Details, examples, or facts that back up a main idea are called what?','Supporting details'],
+      ['Using clues from the text plus what you know to figure something out is called what?','Making an inference'],
+      ['The reason an author writes a text (to inform, persuade, or entertain) is the author’s what?','Purpose'],
+      ['Retelling the key points of a text in your own words is called what?','Summarizing'],
+      ['Words around an unknown word that help you figure out its meaning are called what?','Context clues']]},
+  ]
+};
+
+/* ======================= Storage ======================= */
+const LS_SETS='tj_sets_v1', LS_GAME='tj_game_v1', LS_TEAMS='tj_teams_v1';
+function lsGet(k,d){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d; }catch(e){ return d; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
+
+function blankSet(){ return {name:'', cats:Array.from({length:NCAT},()=>({name:'',q:Array.from({length:NQ},()=>['',''])}))}; }
+function normalizeSet(s){
+  const out=blankSet(); out.name=String(s.name||'').slice(0,80);
+  for(let c=0;c<NCAT;c++){ const sc=(s.cats||[])[c]||{}; out.cats[c].name=String(sc.name||'');
+    for(let i=0;i<NQ;i++){ const p=(sc.q||[])[i]||[]; out.cats[c].q[i]=[String(p[0]||''),String(p[1]||'')]; } }
+  return out;
+}
+
+/* ======================= State ======================= */
+let state = {
+  view:'setup',           // setup | game
+  draft: normalizeSet(SAMPLE_SET),
+  sets: lsGet(LS_SETS, [ normalizeSet(SAMPLE_SET) ]),
+  teams: lsGet(LS_TEAMS, ['Team 1','Team 2']),
+  game: lsGet(LS_GAME, null),
+  modal: null,            // {c,i,step,correct}
+  importOpen:false, exportOpen:false, confirmEnd:false,
+};
+
+function save(){ lsSet(LS_SETS,state.sets); lsSet(LS_TEAMS,state.teams); lsSet(LS_GAME,state.game); }
+
+function newGame(){
+  const set = normalizeSet(state.draft);
+  const deck = shuffle(DECK);
+  return { set, teams:state.teams.map((t,i)=>t.trim()||('Team '+(i+1))), scores:[0,0], turn:0,
+    cards: deck, used:Array(NCAT*NQ).fill(false), history:[] };
+}
+
+/* ======================= Helpers ======================= */
+const $ = (s,r=document)=>r.querySelector(s);
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+let toastT; function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2200); }
+function setFilled(s){ return s.cats.every(c=>c.name.trim()&&c.q.every(p=>p[0].trim())); }
+function countFilled(s){ let n=0; s.cats.forEach(c=>c.q.forEach(p=>{ if(p[0].trim()) n++; })); return n; }
+
+/* ======================= Render ======================= */
+function render(){
+  const app=$('#app');
+  app.innerHTML = state.view==='game' && state.game ? renderGame() : renderSetup();
+  bind();
+}
+
+function renderSetup(){
+  const d=state.draft;
+  const resumable = state.game && state.game.used.some(Boolean) && !state.game.used.every(Boolean);
+  return `
+  <header class="top">
+    <div><div class="eyebrow">Set up a game</div><h1>Twisted <span>Jeopardy</span></h1></div>
+    <div class="row">
+      ${resumable?`<button class="ghost" data-act="resume">Resume game in progress</button>`:''}
+      <button class="big" data-act="start" ${countFilled(d)?'':'disabled'}>Start game</button>
+    </div>
+  </header>
+  <div class="setup-grid">
+    <div class="stack">
+      <section class="panel stack">
+        <h2>Teams</h2>
+        <div class="teams">
+          <div><label class="eyebrow" for="t0">Team 1 name</label><input id="t0" data-team="0" value="${esc(state.teams[0])}" maxlength="30" placeholder="Team 1"></div>
+          <div><label class="eyebrow" for="t1">Team 2 name</label><input id="t1" data-team="1" value="${esc(state.teams[1])}" maxlength="30" placeholder="Team 2"></div>
+        </div>
+      </section>
+      <section class="panel stack">
+        <div class="row" style="justify-content:space-between">
+          <h2>Categories and questions</h2>
+          <span class="muted small">${countFilled(d)} of ${NCAT*NQ} questions filled</span>
+        </div>
+        <p class="help">Five categories, six questions each. Each card on the board gets one question in order (card 1 is question 1). Answers are shown to you first, then revealed with a click.</p>
+        <div><label class="eyebrow" for="setname">Question set name</label><input id="setname" data-setname value="${esc(d.name)}" placeholder="e.g. Unit 3 Review"></div>
+        ${d.cats.map((c,ci)=>`
+        <div class="cat-block" style="--cat:${COLORS[ci]}">
+          <div class="cat-name"><span class="dot"></span><input data-cat="${ci}" value="${esc(c.name)}" placeholder="Category ${ci+1} name" aria-label="Category ${ci+1} name"></div>
+          ${c.q.map((p,qi)=>`
+          <div class="qa">
+            <div class="n">${qi+1}</div>
+            <textarea data-q="${ci}-${qi}" placeholder="Question ${qi+1}" aria-label="Category ${ci+1} question ${qi+1}">${esc(p[0])}</textarea>
+            <textarea class="a" data-a="${ci}-${qi}" placeholder="Answer" aria-label="Category ${ci+1} answer ${qi+1}">${esc(p[1])}</textarea>
+          </div>`).join('')}
+        </div>`).join('')}
+        <div class="row">
+          <button data-act="savedraft">Save this question set</button>
+          <button class="ghost" data-act="clear">Clear all fields</button>
+        </div>
+      </section>
+    </div>
+    <div class="stack">
+      <section class="panel stack">
+        <h2>Saved question sets</h2>
+        <p class="help">Saved in this browser. Use Export to share a set with a co-teacher or move it to another computer.</p>
+        <div class="saved-list">
+          ${state.sets.length?state.sets.map((s,i)=>`
+          <div class="saved-item ${s.name===d.name?'current':''}">
+            <div class="name" title="${esc(s.name)}">${esc(s.name||'(untitled)')}<div class="muted small">${countFilled(s)} questions</div></div>
+            <div class="row" style="flex-wrap:nowrap;gap:6px">
+              <button class="ghost" data-load="${i}">Load</button>
+              <button class="danger" data-del="${i}" title="Delete">&times;</button>
+            </div>
+          </div>`).join(''):'<div class="muted small">No saved sets yet.</div>'}
+        </div>
+        <div class="row">
+          <button class="ghost" data-act="toggleExport">${state.exportOpen?'Hide export':'Export current set'}</button>
+          <button class="ghost" data-act="toggleImport">${state.importOpen?'Hide import':'Import a set'}</button>
+        </div>
+        ${state.exportOpen?`
+        <div class="stack">
+          <label class="eyebrow" for="exportbox">Copy this text and send it to your co-teacher</label>
+          <textarea id="exportbox" rows="6" readonly>${esc(JSON.stringify(normalizeSet(d)))}</textarea>
+          <button data-act="copyExport">Copy to clipboard</button>
+        </div>`:''}
+        ${state.importOpen?`
+        <div class="stack">
+          <label class="eyebrow" for="importbox">Paste exported text here</label>
+          <textarea id="importbox" rows="6" placeholder='{"name": ...}'></textarea>
+          <div class="row"><button data-act="doImport">Import into editor</button>
+          <label class="ghost" style="display:inline-block"><input type="file" id="importfile" accept=".json,application/json,.txt" style="display:none"><button class="ghost" data-act="pickfile" type="button">Or choose a .json file</button></label></div>
+          <div id="importerr" class="notice err" hidden></div>
+        </div>`:''}
+      </section>
+      <section class="panel stack">
+        <h2>How it plays</h2>
+        <ol class="help" style="padding-left:1.2em;display:grid;gap:6px">
+          <li>Teams alternate. The active team picks a card.</li>
+          <li>Ask the question. Reveal the answer, then mark it Correct or Incorrect.</li>
+          <li>Flip the card. Its twist is applied first, then +100 if correct. Scores can go negative.</li>
+          <li>Card twists are shuffled onto new board positions every game.</li>
+        </ol>
+      </section>
+    </div>
+  </div>`;
+}
+
+function renderGame(){
+  const g=state.game;
+  const allUsed=g.used.every(Boolean);
+  return `
+  <header class="top">
+    <div><h1>Twisted <span>Jeopardy</span></h1><div class="muted small">${esc(g.set.name||'Untitled set')} &middot; ${g.used.filter(Boolean).length}/${NCAT*NQ} cards played</div></div>
+    <div class="row">
+      <button class="ghost" data-act="undo" ${g.history.length?'':'disabled'}>Undo last card</button>
+      <button class="ghost" data-act="tosetup">Back to setup</button>
+      <button class="danger" data-act="endgame">${state.confirmEnd?'Really end? Click again':'End game'}</button>
+    </div>
+  </header>
+  <div class="game">
+    <div class="board">
+      ${g.set.cats.map((c,ci)=>`<div class="head" style="--cat:${COLORS[ci]}">${esc(c.name||('Category '+(ci+1)))}</div>`).join('')}
+      ${Array.from({length:NQ},(_,qi)=>g.set.cats.map((c,ci)=>{
+        const idx=ci*NQ+qi, used=g.used[idx], has=c.q[qi][0].trim();
+        return `<button class="card ${used||!has?'used':''}" style="--cat:${COLORS[ci]}" data-card="${idx}" ${used||!has?'disabled':''} aria-label="${esc(c.name)} ${qi+1}">${qi+1}</button>`;
+      }).join('')).join('')}
+    </div>
+    <aside class="rail">
+      ${g.teams.map((t,i)=>`
+      <div class="team ${g.turn===i?'active':''}" data-turn="${i}" role="button" tabindex="0" aria-label="Make ${esc(t)} the active team">
+        <div class="turn">${g.turn===i?'Picking now':''}</div>
+        <div class="tname">${esc(t)}</div>
+        <div class="score ${g.scores[i]<0?'neg':''}" id="score${i}">${g.scores[i]}</div>
+        <div class="adj">
+          <button class="ghost" data-adj="${i}:-100">-100</button>
+          <input type="number" step="100" value="${g.scores[i]}" data-setscore="${i}" aria-label="Edit score for ${esc(t)}">
+          <button class="ghost" data-adj="${i}:100">+100</button>
+        </div>
+      </div>`).join('')}
+      <div class="tools muted small">Click a team to change who picks. Edit the score box to override.</div>
+    </aside>
+  </div>
+  ${allUsed&&!state.modal&&!g.winClosed?renderWinner():''}
+  ${state.modal?renderModal():''}`;
+}
+
+function renderWinner(){
+  const g=state.game; const [a,b]=g.scores;
+  const msg = a===b ? 'It’s a tie!' : (a>b?g.teams[0]:g.teams[1])+' wins!';
+  return `<div class="overlay"><div class="sheet" style="--cat:var(--gold)">
+    <div class="winner"><div class="eyebrow">All cards played</div><div class="big">${esc(msg)}</div>
+    <div class="row" style="font-size:1.3rem;font-weight:900;gap:24px"><span>${esc(g.teams[0])}: ${a}</span><span>${esc(g.teams[1])}: ${b}</span></div>
+    <div class="actions"><button class="ghost" data-act="closewin">Keep board open</button><button class="big" data-act="tosetup">New game</button></div></div>
+  </div></div>`;
+}
+
+function renderModal(){
+  const g=state.game, m=state.modal; const ci=Math.floor(m.idx/NQ), qi=m.idx%NQ;
+  const cat=g.set.cats[ci], [q,a]=cat.q[qi]; const card=g.cards[m.idx];
+  const me=g.turn, other=1-me; const names=[g.teams[me],g.teams[other]];
+  const steps=['Question','Answer','Flip card','Apply'];
+  const stepIdx={q:0,a:1,flip:2,apply:3}[m.step];
+  let body='';
+  if(m.step==='q'){
+    body=`<div class="q">${esc(q)}</div><div class="actions"><button class="big" data-act="showA">Show answer</button></div>`;
+  } else if(m.step==='a'){
+    body=`<div class="q">${esc(q)}</div><div class="a">${a.trim()?esc(a):'<span class="muted">(no answer entered)</span>'}</div>
+      <div class="actions"><button class="big good" data-act="mark:1">Correct (+100)</button><button class="big danger" data-act="mark:0">Incorrect</button></div>`;
+  } else if(m.step==='flip'){
+    body=`<div class="flip"><div class="eyebrow">${m.correct?'Correct! Now the twist...':'Not quite. Now the twist...'}</div>
+      <div class="face" style="color:var(--muted)">?</div>
+      <div class="actions"><button class="big" data-act="flip">Flip over card</button></div></div>`;
+  } else {
+    const ct=cardText(card,names);
+    const [nm,no]=applyCard(card,g.scores[me],g.scores[other]);
+    const fm = nm + (m.correct?100:0);
+    body=`<div class="flip pulse">
+      <div class="face ${ct.tone}">${esc(ct.main)}</div>
+      ${ct.sub?`<div class="face sub">${esc(ct.sub)}</div>`:''}
+      <div class="preview">
+        <div class="pn">${esc(names[0])}</div><div class="arrow">${g.scores[me]} &rarr;</div><div class="pv ${fm<0?'neg':''}">${fm}</div>
+        <div class="pn">${esc(names[1])}</div><div class="arrow">${g.scores[other]} &rarr;</div><div class="pv ${no<0?'neg':''}">${no}</div>
+      </div>
+      <div class="muted small">Card applied first${m.correct?', then +100 for the correct answer':''}.</div>
+      <div class="actions"><button class="big" data-act="apply">Apply and return to board</button></div></div>`;
+  }
+  return `<div class="overlay" id="overlay"><div class="sheet" style="--cat:${COLORS[ci]}">
+    <button class="closex" data-act="closemodal" aria-label="Cancel and return to board" title="Cancel (card stays unplayed)">&times;</button>
+    <div class="row" style="justify-content:space-between;padding-right:36px"><div class="tag">${esc(cat.name)} &middot; ${qi+1}</div><div class="for">${esc(names[0])} is answering</div></div>
+    <div class="steps">${steps.map((s,i)=>`<span class="${i===stepIdx?'on':''}">${s}</span>`).join('')}</div>
+    ${body}
+  </div></div>`;
+}
+
+/* ======================= Events ======================= */
+function bind(){
+  const app=$('#app');
+  app.oninput=(e)=>{
+    const el=e.target;
+    if(el.dataset.team!==undefined){ state.teams[+el.dataset.team]=el.value; lsSet(LS_TEAMS,state.teams); return; }
+    if(el.dataset.setname!==undefined){ state.draft.name=el.value; return; }
+    if(el.dataset.cat!==undefined){ state.draft.cats[+el.dataset.cat].name=el.value; return; }
+    if(el.dataset.q){ const [c,i]=el.dataset.q.split('-').map(Number); state.draft.cats[c].q[i][0]=el.value; refreshStart(); return; }
+    if(el.dataset.a){ const [c,i]=el.dataset.a.split('-').map(Number); state.draft.cats[c].q[i][1]=el.value; return; }
+  };
+  app.onchange=(e)=>{
+    const el=e.target;
+    if(el.dataset.setscore!==undefined){ const i=+el.dataset.setscore; const v=parseInt(el.value,10); if(!isNaN(v)){ state.game.scores[i]=v; save(); render(); } return; }
+    if(el.id==='importfile' && el.files[0]){ const r=new FileReader(); r.onload=()=>{ $('#importbox').value=r.result; doImport(); }; r.readAsText(el.files[0]); }
+  };
+  app.onkeydown=(e)=>{ if(e.key==='Enter'&&e.target.dataset.turn!==undefined){ e.target.click(); } };
+  app.onclick=(e)=>{
+    const b=e.target.closest('[data-act],[data-load],[data-del],[data-card],[data-adj],[data-turn]'); if(!b) return;
+    if(b.dataset.load!==undefined){ state.draft=normalizeSet(state.sets[+b.dataset.load]); state.importOpen=state.exportOpen=false; render(); toast('Loaded'); return; }
+    if(b.dataset.del!==undefined){ const s=state.sets[+b.dataset.del]; if(b.dataset.confirm){ state.sets.splice(+b.dataset.del,1); save(); render(); toast('Deleted'); } else { b.dataset.confirm='1'; b.textContent='Sure?'; b.style.width='auto'; } return; }
+    if(b.dataset.card!==undefined){ state.modal={idx:+b.dataset.card,step:'q',correct:false}; state.confirmEnd=false; render(); return; }
+    if(b.dataset.adj!==undefined){ const [i,n]=b.dataset.adj.split(':').map(Number); state.game.scores[i]+=n; save(); render(); return; }
+    if(b.dataset.turn!==undefined && !e.target.closest('.adj')){ state.game.turn=+b.dataset.turn; save(); render(); return; }
+    const act=b.dataset.act; if(!act) return;
+    const g=state.game;
+    switch(act){
+      case 'start': state.game=newGame(); state.view='game'; state.modal=null; save(); render(); break;
+      case 'resume': state.view='game'; render(); break;
+      case 'savedraft': {
+        const s=normalizeSet(state.draft); if(!s.name.trim()){ s.name='Set '+new Date().toLocaleDateString(); state.draft.name=s.name; }
+        const i=state.sets.findIndex(x=>x.name===s.name); if(i>=0) state.sets[i]=s; else state.sets.push(s);
+        save(); render(); toast(i>=0?'Updated "'+s.name+'"':'Saved "'+s.name+'"'); break; }
+      case 'clear': state.draft=blankSet(); render(); break;
+      case 'toggleExport': state.exportOpen=!state.exportOpen; render(); break;
+      case 'toggleImport': state.importOpen=!state.importOpen; render(); break;
+      case 'copyExport': { const t=$('#exportbox').value; navigator.clipboard.writeText(t).then(()=>toast('Copied')).catch(()=>{ $('#exportbox').select(); toast('Select all and copy'); }); break; }
+      case 'pickfile': $('#importfile').click(); break;
+      case 'doImport': doImport(); break;
+      case 'tosetup': state.view='setup'; state.modal=null; state.confirmEnd=false; render(); break;
+      case 'endgame': if(state.confirmEnd){ state.game=null; state.view='setup'; state.confirmEnd=false; save(); render(); toast('Game ended'); } else { state.confirmEnd=true; render(); } break;
+      case 'closewin': g.winClosed=true; save(); render(); break;
+      case 'undo': { const h=g.history.pop(); if(h){ g.scores=h.scores; g.turn=h.turn; g.used[h.idx]=false; save(); render(); toast('Undid '+h.label); } break; }
+      case 'closemodal': state.modal=null; render(); break;
+      case 'showA': state.modal.step='a'; render(); break;
+      case 'mark:1': state.modal.correct=true; state.modal.step='flip'; render(); break;
+      case 'mark:0': state.modal.correct=false; state.modal.step='flip'; render(); break;
+      case 'flip': state.modal.step='apply'; render(); break;
+      case 'apply': {
+        const m=state.modal, me=g.turn, other=1-me, card=g.cards[m.idx];
+        const ci=Math.floor(m.idx/NQ), qi=m.idx%NQ;
+        g.history.push({scores:g.scores.slice(),turn:g.turn,idx:m.idx,label:g.set.cats[ci].name+' '+(qi+1)});
+        const [nm,no]=applyCard(card,g.scores[me],g.scores[other]);
+        g.scores[me]=nm+(m.correct?100:0); g.scores[other]=no;
+        g.used[m.idx]=true; g.turn=other; state.modal=null; save(); render(); break; }
+    }
+  };
+}
+function refreshStart(){ const b=$('[data-act="start"]'); if(b) b.disabled=!countFilled(state.draft); }
+function doImport(){
+  const box=$('#importbox'), err=$('#importerr'); if(!box) return;
+  try{ const obj=JSON.parse(box.value); if(!obj||!Array.isArray(obj.cats)) throw new Error('That text is not a Twisted Jeopardy set.');
+    state.draft=normalizeSet(obj); state.importOpen=false; render(); toast('Imported "'+state.draft.name+'". Save it to keep it.'); }
+  catch(e){ err.hidden=false; err.textContent='Could not import: '+e.message; }
+}
+
+/* ======================= Boot ======================= */
+function start(data){
+  if(data&&data.state){ Object.assign(state,data.state); }
+  else if(state.game && state.game.used.some(Boolean) && !state.game.used.every(Boolean)) { state.view='game'; }
+  render();
+}
+window.claude?.hot?.snapshot?.(()=>({state:{view:state.view,draft:state.draft,game:state.game,modal:state.modal}}));
+window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
+</script>
+
+</body>
+</html>
